@@ -35,7 +35,11 @@ export class Semaphore {
    * @type {number}
    */
   public available: number;
-  private deferredTasks: Array<() => void> = [];
+
+  // Waiting tasks form a singly linked list rather than an array, because `Array#shift` copies
+  // the remaining elements once the array grows large, which makes draining a long queue quadratic.
+  private deferredTaskHead: DeferredTask | undefined;
+  private deferredTaskTail: DeferredTask | undefined;
 
   /**
    * Creates an instance of Semaphore.
@@ -72,7 +76,15 @@ export class Semaphore {
     }
 
     return new Promise<void>(resolve => {
-      this.deferredTasks.push(resolve);
+      const deferredTask: DeferredTask = { resolve, next: undefined };
+
+      if (this.deferredTaskTail != null) {
+        this.deferredTaskTail.next = deferredTask;
+      } else {
+        this.deferredTaskHead = deferredTask;
+      }
+
+      this.deferredTaskTail = deferredTask;
     });
   }
 
@@ -92,10 +104,16 @@ export class Semaphore {
    * }
    */
   release(): void {
-    const deferredTask = this.deferredTasks.shift();
+    const deferredTask = this.deferredTaskHead;
 
     if (deferredTask != null) {
-      deferredTask();
+      this.deferredTaskHead = deferredTask.next;
+
+      if (this.deferredTaskHead == null) {
+        this.deferredTaskTail = undefined;
+      }
+
+      deferredTask.resolve();
       return;
     }
 
@@ -103,4 +121,9 @@ export class Semaphore {
       this.available++;
     }
   }
+}
+
+interface DeferredTask {
+  resolve: () => void;
+  next: DeferredTask | undefined;
 }
