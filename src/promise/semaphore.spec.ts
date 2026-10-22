@@ -112,21 +112,20 @@ describe('Semaphore', () => {
       waiters.push(
         semaphore.acquire().then(() => {
           order.push(i);
+          semaphore.release();
         })
       );
     }
 
-    for (let i = 0; i < waiterCount; i++) {
-      semaphore.release();
-    }
+    semaphore.release();
 
     await Promise.all(waiters);
 
     expect(order).toEqual(Array.from({ length: waiterCount }, (_, i) => i));
-    expect(semaphore.available).toBe(0);
+    expect(semaphore.available).toBe(1);
   });
 
-  it('should keep the queue order when waiters are added while others are still waiting or after it empties', async () => {
+  it('should keep FIFO order after the queue empties and fills again', async () => {
     const semaphore = new Semaphore(1);
 
     await semaphore.acquire();

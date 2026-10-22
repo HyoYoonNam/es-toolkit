@@ -1,3 +1,8 @@
+interface DeferredTask {
+  resolve: () => void;
+  next: DeferredTask | undefined;
+}
+
 /**
  * A counting semaphore for async functions that manages available permits.
  * Semaphores are mainly used to limit the number of concurrent async tasks.
@@ -36,10 +41,10 @@ export class Semaphore {
    */
   public available: number;
 
-  // Waiting tasks form a singly linked list rather than an array, because `Array#shift` copies
-  // the remaining elements once the array grows large, which makes draining a long queue quadratic.
-  private deferredTaskHead: DeferredTask | undefined;
-  private deferredTaskTail: DeferredTask | undefined;
+  // Waiting tasks form a singly linked list rather than an array. In V8, `Array#shift` copies the
+  // remaining elements once the queue grows past about 16k entries, which makes draining a long queue quadratic.
+  private head: DeferredTask | undefined;
+  private tail: DeferredTask | undefined;
 
   /**
    * Creates an instance of Semaphore.
@@ -78,13 +83,13 @@ export class Semaphore {
     return new Promise<void>(resolve => {
       const deferredTask: DeferredTask = { resolve, next: undefined };
 
-      if (this.deferredTaskTail != null) {
-        this.deferredTaskTail.next = deferredTask;
+      if (this.tail != null) {
+        this.tail.next = deferredTask;
       } else {
-        this.deferredTaskHead = deferredTask;
+        this.head = deferredTask;
       }
 
-      this.deferredTaskTail = deferredTask;
+      this.tail = deferredTask;
     });
   }
 
@@ -104,13 +109,13 @@ export class Semaphore {
    * }
    */
   release(): void {
-    const deferredTask = this.deferredTaskHead;
+    const deferredTask = this.head;
 
     if (deferredTask != null) {
-      this.deferredTaskHead = deferredTask.next;
+      this.head = deferredTask.next;
 
-      if (this.deferredTaskHead == null) {
-        this.deferredTaskTail = undefined;
+      if (this.head == null) {
+        this.tail = undefined;
       }
 
       deferredTask.resolve();
@@ -121,9 +126,4 @@ export class Semaphore {
       this.available++;
     }
   }
-}
-
-interface DeferredTask {
-  resolve: () => void;
-  next: DeferredTask | undefined;
 }
